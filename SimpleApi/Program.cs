@@ -1,18 +1,21 @@
-﻿
-using System.Data.SQLite;
+﻿using System.Data.SQLite;
 using Newtonsoft.Json;
 
-public class Joke
+public class NationalizeResponse
 {
-    public string Type { get; set; }
-    public string Setup { get; set; }
-    public string Punchline { get; set; }
-    public int Id { get; set; }
+    public string Name { get; set; }
+    public List<CountryProbability> Country { get; set; }
+}
+
+public class CountryProbability
+{
+    public string Country_Id { get; set; }
+    public double Probability { get; set; }
 }
 
 class Program
 {
-    private const string ConnectionString = "Data Source=jokes.db;Version=3;";
+    private const string ConnectionString = "Data Source=nationalize.db;Version=3;";
 
     static async Task Main(string[] args)
     {
@@ -22,52 +25,54 @@ class Program
         string choice = "";
         while (choice != "4")
         {
-            Console.WriteLine("1 - Fetch new joke\n2 - Read saved jokes\n3 - Clear saved jokes\n4 - Exit");
+            Console.WriteLine("1 - Fetch nationalities\n2 - Read saved data\n3 - Clear saved data\n4 - Exit");
             choice = Console.ReadLine();
             switch (choice)
             {
-                case "1": await FetchAndStoreJoke(connection); break;
-                case "2": ReadJokes(connection); break;
-                case "3": ClearJokes(connection); break;
+                case "1": await FetchAndStoreNationalities(connection); break;
+                case "2": ReadNationalities(connection); break;
+                case "3": ClearNationalities(connection); break;
             }
         }
     }
 
-    private static async Task FetchAndStoreJoke(SQLiteConnection connection)
+    private static async Task FetchAndStoreNationalities(SQLiteConnection connection)
     {
+        Console.WriteLine("Enter a name:");
+        string name = Console.ReadLine();
         using var client = new HttpClient();
-        var response = await client.GetStringAsync("https://official-joke-api.appspot.com/random_joke");
-        var joke = JsonConvert.DeserializeObject<Joke>(response);
-        await SaveJokeToDatabaseAsync(joke, connection);
+        var response = await client.GetStringAsync($"https://api.nationalize.io/?name={name}");
+        var nationalizeData = JsonConvert.DeserializeObject<NationalizeResponse>(response);
+        await SaveNationalitiesToDatabaseAsync(nationalizeData, connection);
     }
 
-    private static async Task SaveJokeToDatabaseAsync(Joke joke, SQLiteConnection connection)
+    private static async Task SaveNationalitiesToDatabaseAsync(NationalizeResponse nationalizeData, SQLiteConnection connection)
     {
-        var query = "INSERT INTO Jokes (Type, Setup, Punchline, Id) VALUES (@type, @setup, @punchline, @id)";
+        var query = "INSERT INTO Nationalities (Name, Country_Id, Probability) VALUES (@name, @countryId, @probability)";
 
-        Console.WriteLine($"ID: {joke.Id}, Type: {joke.Type}, Setup: {joke.Setup}, Punchline: {joke.Punchline}");
+        foreach (var country in nationalizeData.Country)
+        {
+            using var command = new SQLiteCommand(query, connection);
+            command.Parameters.AddWithValue("@name", nationalizeData.Name);
+            command.Parameters.AddWithValue("@countryId", country.Country_Id);
+            command.Parameters.AddWithValue("@probability", country.Probability);
+            await command.ExecuteNonQueryAsync();
+            Console.WriteLine($"Name: {nationalizeData.Name}, Country: {country.Country_Id}, Probability: {country.Probability}");
+        }
 
-        using var command = new SQLiteCommand(query, connection);
-        command.Parameters.AddWithValue("@type", joke.Type);
-        command.Parameters.AddWithValue("@setup", joke.Setup);
-        command.Parameters.AddWithValue("@punchline", joke.Punchline);
-        command.Parameters.AddWithValue("@id", joke.Id);
-
-        await command.ExecuteNonQueryAsync();
-        Console.WriteLine("Joke saved to database.");
+        Console.WriteLine("Data saved to database.");
     }
-
 
     private static void CreateDatabase(SQLiteConnection connection)
     {
-        var query = "CREATE TABLE IF NOT EXISTS Jokes (Id INTEGER PRIMARY KEY, Type TEXT, Setup TEXT, Punchline TEXT)";
+        var query = "CREATE TABLE IF NOT EXISTS Nationalities (Id INTEGER PRIMARY KEY, Name TEXT, Country_Id TEXT, Probability REAL)";
         using var command = new SQLiteCommand(query, connection);
         command.ExecuteNonQuery();
     }
 
-    private static void ReadJokes(SQLiteConnection connection)
+    private static void ReadNationalities(SQLiteConnection connection)
     {
-        var query = "SELECT * FROM Jokes";
+        var query = "SELECT * FROM Nationalities";
         using var command = new SQLiteCommand(query, connection);
         using var reader = command.ExecuteReader();
         if (!reader.HasRows)
@@ -77,16 +82,15 @@ class Program
         }
         while (reader.Read())
         {
-            Console.WriteLine($"ID: {reader["Id"]}, Type: {reader["Type"]}, Setup: {reader["Setup"]}, Punchline: {reader["Punchline"]}");
+            Console.WriteLine($"Name: {reader["Name"]}, Country: {reader["Country_Id"]}, Probability: {reader["Probability"]}");
         }
     }
 
-    //додаткове очищення
-    private static void ClearJokes(SQLiteConnection connection)
+    private static void ClearNationalities(SQLiteConnection connection)
     {
-        var query = "DELETE FROM Jokes";
+        var query = "DELETE FROM Nationalities";
         using var command = new SQLiteCommand(query, connection);
         command.ExecuteNonQuery();
-        Console.WriteLine("Jokes table cleared.");
+        Console.WriteLine("Nationalities table cleared.");
     }
 }
