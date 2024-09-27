@@ -1,4 +1,8 @@
-﻿using System.Data.SQLite;
+﻿using System;
+using System.Collections.Generic;
+using System.Data.SQLite;
+using System.Net.Http;
+using System.Threading.Tasks;
 using Newtonsoft.Json;
 
 public class NationalizeResponse
@@ -48,27 +52,49 @@ class Program
 
     private static async Task SaveNationalitiesToDatabaseAsync(NationalizeResponse nationalizeData, SQLiteConnection connection)
     {
-        var query = "INSERT INTO Nationalities (Name, Country_Id, Probability) VALUES (@name, @countryId, @probability)";
+        var checkQuery = "SELECT COUNT(1) FROM Nationalities WHERE Name = @name AND Country_Id = @countryId";
+        var insertQuery = "INSERT INTO Nationalities (Name, Country_Id, Probability) VALUES (@name, @countryId, @probability)";
 
         foreach (var country in nationalizeData.Country)
         {
-            using var command = new SQLiteCommand(query, connection);
-            command.Parameters.AddWithValue("@name", nationalizeData.Name);
-            command.Parameters.AddWithValue("@countryId", country.Country_Id);
-            command.Parameters.AddWithValue("@probability", country.Probability);
-            await command.ExecuteNonQueryAsync();
-            Console.WriteLine($"Name: {nationalizeData.Name}, Country: {country.Country_Id}, Probability: {country.Probability}");
+            using var checkCommand = new SQLiteCommand(checkQuery, connection);
+            checkCommand.Parameters.AddWithValue("@name", nationalizeData.Name);
+            checkCommand.Parameters.AddWithValue("@countryId", country.Country_Id);
+
+            var exists = (long)await checkCommand.ExecuteScalarAsync();
+
+            if (exists == 0)
+            {
+                using var insertCommand = new SQLiteCommand(insertQuery, connection);
+                insertCommand.Parameters.AddWithValue("@name", nationalizeData.Name);
+                insertCommand.Parameters.AddWithValue("@countryId", country.Country_Id);
+                insertCommand.Parameters.AddWithValue("@probability", country.Probability);
+                await insertCommand.ExecuteNonQueryAsync();
+                Console.WriteLine($"Name: {nationalizeData.Name}, Country: {country.Country_Id}, Probability: {country.Probability}");
+            }
+            else
+            {
+                Console.WriteLine($"Record for Name: {nationalizeData.Name} and Country: {country.Country_Id} already exists.");
+            }
         }
 
         Console.WriteLine("Data saved to database.");
     }
 
+
     private static void CreateDatabase(SQLiteConnection connection)
     {
-        var query = "CREATE TABLE IF NOT EXISTS Nationalities (Id INTEGER PRIMARY KEY, Name TEXT, Country_Id TEXT, Probability REAL)";
+        var query = @"
+        CREATE TABLE IF NOT EXISTS Nationalities (
+            Name TEXT,
+            Country_Id TEXT,
+            Probability REAL,
+            PRIMARY KEY (Name, Country_Id)
+        )";
         using var command = new SQLiteCommand(query, connection);
         command.ExecuteNonQuery();
     }
+
 
     private static void ReadNationalities(SQLiteConnection connection)
     {
@@ -82,7 +108,7 @@ class Program
         }
         while (reader.Read())
         {
-            Console.WriteLine($"Name: {reader["Name"]}, Country: {reader["Country_Id"]}, Probability: {reader["Probability"]}");
+            Console.WriteLine($"Country: {reader["Country_Id"]}, Name: {reader["Name"]}, Probability: {reader["Probability"]}");
         }
     }
 
